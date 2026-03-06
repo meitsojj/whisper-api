@@ -13,6 +13,9 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Pre-download Whisper model to avoid runtime delays
+RUN python -c "import whisper; whisper.load_model('base')"
+
 COPY . .
 
 EXPOSE 8080
