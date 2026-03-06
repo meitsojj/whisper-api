@@ -1,4 +1,4 @@
-whisper-api/
-├── main.py
-├── requirements.txt
-└── Dockerfile
+fastapi
+uvicorn
+openai-whisper
+python-multipart
