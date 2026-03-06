@@ -17,6 +17,16 @@ def get_model():
         model = whisper.load_model("base")
     return model
 
+@app.get("/")
+async def root():
+    """根路由 - 健康檢查"""
+    return {"status": "ok", "message": "Whisper API is running"}
+
+@app.get("/health")
+async def health():
+    """健康檢查端點"""
+    return {"status": "healthy"}
+
 @app.post("/transcribe")
 async def transcribe(file: UploadFile = File(...)):
     """轉錄上傳的音頻文件"""
