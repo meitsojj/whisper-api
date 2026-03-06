@@ -1,0 +1,4 @@
+whisper-api/
+├── main.py
+├── requirements.txt
+└── Dockerfile
