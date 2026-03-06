@@ -1,8 +1,15 @@
 from fastapi import FastAPI, UploadFile, File
-import whisper, tempfile, os
+from pydantic import BaseModel
+import whisper
+import tempfile
+import os
+import yt_dlp
 
 app = FastAPI()
 model = None
+
+class YouTubeURL(BaseModel):
+    url: str
 
 def get_model():
     global model
@@ -12,10 +19,47 @@ def get_model():
 
 @app.post("/transcribe")
 async def transcribe(file: UploadFile = File(...)):
+    """轉錄上傳的音頻文件"""
     model = get_model()
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
         tmp.write(await file.read())
         tmp_path = tmp.name
-    result = model.transcribe(tmp_path, language=None)
-    os.unlink(tmp_path)
-    return {"text": result["text"], "language": result["language"]}
+    try:
+        result = model.transcribe(tmp_path, language=None)
+        return {"text": result["text"], "language": result["language"]}
+    finally:
+        os.unlink(tmp_path)
+
+@app.post("/transcribe-youtube")
+async def transcribe_youtube(data: YouTubeURL):
+    """從 YouTube URL 下載音頻並轉錄"""
+    model = get_model()
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        try:
+            # 使用 yt-dlp 下載音頻
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
+                'outtmpl': os.path.join(tmpdir, '%(title)s'),
+                'quiet': True,
+                'no_warnings': True,
+            }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(data.url, download=True)
+                audio_file = os.path.join(tmpdir, f"{info['title']}.mp3")
+            
+            # 轉錄音頻
+            result = model.transcribe(audio_file, language=None)
+            return {
+                "title": info['title'],
+                "text": result["text"],
+                "language": result["language"]
+            }
+        except Exception as e:
+            return {"error": str(e)}
