@@ -13,8 +13,11 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ---
 
-**第三步：回到 Zeabur 填入**
+**問題 2：requirements.txt 內容不對（圖4）**
+
+裡面放的是資料夾結構說明，不是套件清單。同樣點進去編輯，**全部清掉**換成：
 ```
-Git URL: https://github.com/你的帳號/whisper-api.git
-分支: main
-認證方式: 匿名（Public repo 選這個就好）
+fastapi
+uvicorn
+openai-whisper
+python-multipart
