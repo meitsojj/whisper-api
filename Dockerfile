@@ -5,16 +5,11 @@ LABEL "framework"="fastapi"
 
 WORKDIR /app
 
-# Install system dependencies including ffmpeg, git, and deno for yt-dlp
+# Install system dependencies including ffmpeg and git for yt-dlp
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     git \
-    curl \
-    && curl -fsSL https://deno.land/x/install/install.sh | sh \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Add deno to PATH
-ENV PATH="/root/.deno/bin:$PATH"
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
