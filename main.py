@@ -4,11 +4,13 @@ from pydantic import BaseModel
 import whisper, tempfile, os, subprocess
 
 app = FastAPI()
+
+# CORS 中间件配置
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -22,6 +24,10 @@ def get_model():
 
 class YouTubeURL(BaseModel):
     url: str
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 @app.post("/transcribe")
 async def transcribe(file: UploadFile = File(...)):
