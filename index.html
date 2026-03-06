@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>課程音頻分析工具</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --surface2: #1a1a26;
+    --border: #2a2a3a;
+    --accent: #7c6aff;
+    --accent2: #00d4aa;
+    --accent3: #ff6b6b;
+    --text: #e8e8f0;
+    --text2: #8888aa;
+    --text3: #5555770;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Noto Sans TC', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(ellipse at 30% 20%, rgba(124,106,255,0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 70% 80%, rgba(0,212,170,0.06) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    width: 100%;
+    max-width: 680px;
+    position: relative;
+    z-index: 1;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 48px;
+  }
+
+  .logo {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .logo-icon {
+    width: 40px;
+    height: 40px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+  }
+
+  .logo-text {
+    font-family: 'Space Mono', monospace;
+    font-size: 14px;
+    color: var(--text2);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, var(--text) 60%, var(--accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .subtitle {
+    color: var(--text2);
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    margin-bottom: 16px;
+  }
+
+  .section-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 16px;
+  }
+
+  /* Upload Zone */
+  .upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .upload-zone:hover, .upload-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(124,106,255,0.05);
+  }
+
+  .upload-zone.drag-over {
+    transform: scale(1.01);
+  }
+
+  .upload-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    display: block;
+    animation: float 3s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-6px); }
+  }
+
+  .upload-title {
+    font-size: 18px;
+    font-weight: 500;
+    margin-bottom: 8px;
+  }
+
+  .upload-hint {
+    color: var(--text2);
+    font-size: 13px;
+    margin-bottom: 20px;
+  }
+
+  .file-types {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .file-type-badge {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    color: var(--text2);
+  }
+
+  #file-input { display: none; }
+
+  /* File Selected State */
+  .file-selected {
+    display: none;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    background: var(--surface2);
+    border-radius: 10px;
+    margin-top: 16px;
+  }
+
+  .file-selected.show { display: flex; }
+
+  .file-icon-wrap {
+    width: 44px;
+    height: 44px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+
+  .file-info { flex: 1; min-width: 0; }
+  .file-name {
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 4px;
+  }
+  .file-size { font-size: 12px; color: var(--text2); }
+
+  .remove-btn {
+    background: none;
+    border: none;
+    color: var(--text2);
+    cursor: pointer;
+    font-size: 18px;
+    padding: 4px;
+    transition: color 0.2s;
+  }
+  .remove-btn:hover { color: var(--accent3); }
+
+  /* Config */
+  .config-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .config-item label {
+    display: block;
+    font-size: 12px;
+    color: var(--text2);
+    margin-bottom: 8px;
+    font-weight: 500;
+  }
+
+  .config-item input, .config-item select {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    transition: border-color 0.2s;
+    outline: none;
+  }
+
+  .config-item input:focus, .config-item select:focus {
+    border-color: var(--accent);
+  }
+
+  .config-item.full { grid-column: 1 / -1; }
+
+  /* Submit Button */
+  .submit-btn {
+    width: 100%;
+    padding: 16px;
+    background: linear-gradient(135deg, var(--accent), #5a4fd4);
+    border: none;
+    border-radius: 12px;
+    color: white;
+    font-family: 'Noto Sans TC', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 8px;
+    letter-spacing: 0.5px;
+  }
+
+  .submit-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(124,106,255,0.4);
+  }
+
+  .submit-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Progress */
+  .progress-card {
+    display: none;
+  }
+
+  .progress-card.show { display: block; }
+
+  .steps {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    background: var(--surface2);
+    transition: all 0.3s ease;
+  }
+
+  .step.active {
+    border: 1px solid var(--accent);
+    background: rgba(124,106,255,0.08);
+  }
+
+  .step.done {
+    border: 1px solid var(--accent2);
+    background: rgba(0,212,170,0.05);
+  }
+
+  .step.error {
+    border: 1px solid var(--accent3);
+    background: rgba(255,107,107,0.05);
+  }
+
+  .step-dot {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+    background: var(--border);
+    color: var(--text2);
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .step.active .step-dot {
+    background: var(--accent);
+    color: white;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  .step.done .step-dot {
+    background: var(--accent2);
+    color: var(--bg);
+  }
+
+  .step.error .step-dot {
+    background: var(--accent3);
+    color: white;
+  }
+
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(124,106,255,0.4); }
+    50% { box-shadow: 0 0 0 8px rgba(124,106,255,0); }
+  }
+
+  .step-text { flex: 1; }
+  .step-title { font-size: 14px; font-weight: 500; margin-bottom: 2px; }
+  .step-desc { font-size: 12px; color: var(--text2); }
+
+  /* Result */
+  .result-card { display: none; }
+  .result-card.show { display: block; }
+
+  .result-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .result-badge {
+    padding: 6px 14px;
+    background: rgba(0,212,170,0.15);
+    border: 1px solid var(--accent2);
+    border-radius: 20px;
+    color: var(--accent2);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .result-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .result-field label {
+    display: block;
+    font-size: 11px;
+    font-family: 'Space Mono', monospace;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+
+  .result-field .value {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 14px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .copy-btn {
+    float: right;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text2);
+    font-size: 11px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-family: 'Space Mono', monospace;
+    transition: all 0.2s;
+    margin-left: 8px;
+  }
+  .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .sheet-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 24px;
+    background: rgba(0,212,170,0.1);
+    border: 1px solid var(--accent2);
+    border-radius: 10px;
+    color: var(--accent2);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+    margin-top: 8px;
+  }
+  .sheet-btn:hover { background: rgba(0,212,170,0.2); }
+
+  .error-msg {
+    padding: 16px;
+    background: rgba(255,107,107,0.1);
+    border: 1px solid var(--accent3);
+    border-radius: 10px;
+    color: var(--accent3);
+    font-size: 14px;
+    margin-top: 16px;
+    display: none;
+  }
+  .error-msg.show { display: block; }
+
+  .spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 500px) {
+    .config-grid { grid-template-columns: 1fr; }
+    h1 { font-size: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <div class="logo">
+      <div class="logo-icon">🎙️</div>
+      <span class="logo-text">Audio → Insight</span>
+    </div>
+    <h1>課程音頻分析工具</h1>
+    <p class="subtitle">上傳錄音檔，自動轉錄並由 Gemini 生成分析報告<br>寫入 Google Sheet，一鍵完成</p>
+  </header>
+
+  <!-- Upload Card -->
+  <div class="card">
+    <div class="section-label">01 · 上傳音頻</div>
+
+    <div class="upload-zone" id="upload-zone">
+      <span class="upload-icon">🎵</span>
+      <div class="upload-title">拖曳音頻檔案到這裡</div>
+      <div class="upload-hint">或點擊選擇檔案</div>
+      <div class="file-types">
+        <span class="file-type-badge">MP3</span>
+        <span class="file-type-badge">MP4</span>
+        <span class="file-type-badge">WAV</span>
+        <span class="file-type-badge">M4A</span>
+        <span class="file-type-badge">OGG</span>
+      </div>
+      <input type="file" id="file-input" accept="audio/*,video/mp4">
+    </div>
+
+    <div class="file-selected" id="file-selected">
+      <div class="file-icon-wrap">🎵</div>
+      <div class="file-info">
+        <div class="file-name" id="file-name">檔案名稱</div>
+        <div class="file-size" id="file-size">大小</div>
+      </div>
+      <button class="remove-btn" id="remove-file">✕</button>
+    </div>
+  </div>
+
+  <!-- Config Card -->
+  <div class="card">
+    <div class="section-label">02 · 設定</div>
+    <div class="config-grid">
+      <div class="config-item full">
+        <label>Whisper API URL</label>
+        <input type="text" id="whisper-url" value="https://whisper-api-sesped.zeabur.app/transcribe" placeholder="https://whisper-api-sesped.zeabur.app/transcribe">
+      </div>
+      <div class="config-item full">
+        <label>Gemini API Key <span style="color:var(--accent2);font-size:10px;margin-left:6px;">✓ 自動儲存</span></label>
+        <input type="password" id="gemini-key" placeholder="AIzaSy...">
+      </div>
+      <div class="config-item full">
+        <label>影片標題（選填）</label>
+        <input type="text" id="video-title" placeholder="例：5-2 業配心法：如何接到業配">
+      </div>
+    </div>
+  </div>
+
+  <button class="submit-btn" id="submit-btn" disabled>
+    <span>🚀</span> 開始分析
+  </button>
+
+  <!-- Progress Card -->
+  <div class="card progress-card" id="progress-card" style="margin-top:16px;">
+    <div class="section-label">03 · 執行進度</div>
+    <div class="steps">
+      <div class="step" id="step-1">
+        <div class="step-dot">1</div>
+        <div class="step-text">
+          <div class="step-title">上傳音頻到 Whisper</div>
+          <div class="step-desc">傳送音頻檔案進行語音轉文字</div>
+        </div>
+      </div>
+      <div class="step" id="step-2">
+        <div class="step-dot">2</div>
+        <div class="step-text">
+          <div class="step-title">Whisper 轉錄中</div>
+          <div class="step-desc">AI 語音識別，轉換為文字內容</div>
+        </div>
+      </div>
+      <div class="step" id="step-3">
+        <div class="step-dot">3</div>
+        <div class="step-text">
+          <div class="step-title">Gemini 分析內容</div>
+          <div class="step-desc">生成摘要、重點整理、短影音腳本</div>
+        </div>
+      </div>
+      <div class="step" id="step-4">
+        <div class="step-dot">4</div>
+        <div class="step-text">
+          <div class="step-title">完成</div>
+          <div class="step-desc">分析結果已就緒</div>
+        </div>
+      </div>
+    </div>
+    <div class="error-msg" id="error-msg"></div>
+  </div>
+
+  <!-- Result Card -->
+  <div class="card result-card" id="result-card" style="margin-top:16px;">
+    <div class="section-label">04 · 分析結果</div>
+    <div class="result-header">
+      <span class="result-badge">✅ 分析完成</span>
+    </div>
+    <div class="result-fields" id="result-fields"></div>
+  </div>
+</div>
+
+<script>
+// 自動載入儲存的設定
+const savedGeminiKey = localStorage.getItem('gemini_api_key');
+const savedWhisperUrl = localStorage.getItem('whisper_url');
+if (savedGeminiKey) document.getElementById('gemini-key').value = savedGeminiKey;
+if (savedWhisperUrl) document.getElementById('whisper-url').value = savedWhisperUrl;
+
+// 自動儲存設定
+document.getElementById('gemini-key').addEventListener('change', e => {
+  localStorage.setItem('gemini_api_key', e.target.value);
+});
+document.getElementById('whisper-url').addEventListener('change', e => {
+  localStorage.setItem('whisper_url', e.target.value);
+});
+
+const uploadZone = document.getElementById('upload-zone');
+const fileInput = document.getElementById('file-input');
+const fileSelected = document.getElementById('file-selected');
+const fileName = document.getElementById('file-name');
+const fileSize = document.getElementById('file-size');
+const removeFile = document.getElementById('remove-file');
+const submitBtn = document.getElementById('submit-btn');
+const progressCard = document.getElementById('progress-card');
+const resultCard = document.getElementById('result-card');
+const errorMsg = document.getElementById('error-msg');
+
+let selectedFile = null;
+
+function formatSize(bytes) {
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+function setFile(file) {
+  selectedFile = file;
+  fileName.textContent = file.name;
+  fileSize.textContent = formatSize(file.size);
+  fileSelected.classList.add('show');
+  submitBtn.disabled = false;
+}
+
+function clearFile() {
+  selectedFile = null;
+  fileInput.value = '';
+  fileSelected.classList.remove('show');
+  submitBtn.disabled = true;
+}
+
+uploadZone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => { if (e.target.files[0]) setFile(e.target.files[0]); });
+removeFile.addEventListener('click', e => { e.stopPropagation(); clearFile(); });
+
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+});
+
+function setStep(stepNum, status) {
+  const step = document.getElementById(`step-${stepNum}`);
+  step.className = 'step ' + status;
+  const dot = step.querySelector('.step-dot');
+  if (status === 'done') dot.textContent = '✓';
+  else if (status === 'error') dot.textContent = '✕';
+  else dot.textContent = stepNum;
+}
+
+function showError(msg) {
+  errorMsg.textContent = msg;
+  errorMsg.classList.add('show');
+}
+
+function renderResults(data) {
+  const fields = document.getElementById('result-fields');
+  const items = [
+    { label: '影片類型', key: '影片類型' },
+    { label: '一句話摘要', key: '一句話摘要' },
+    { label: '重點內容', key: '重點內容' },
+    { label: '腳本_YouTube', key: '腳本_YouTube' },
+    { label: '腳本_IG', key: '腳本_IG' },
+  ];
+
+  fields.innerHTML = items.map(item => {
+    const val = data[item.key] || '（無資料）';
+    return `
+      <div class="result-field">
+        <label>
+          ${item.label}
+          <button class="copy-btn" onclick="navigator.clipboard.writeText(${JSON.stringify(val)});this.textContent='已複製！';setTimeout(()=>this.textContent='複製',1500)">複製</button>
+        </label>
+        <div class="value">${val}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+submitBtn.addEventListener('click', async () => {
+  if (!selectedFile) return;
+
+  const whisperUrl = document.getElementById('whisper-url').value.trim();
+  const geminiKey = document.getElementById('gemini-key').value.trim();
+
+  if (!geminiKey) { alert('請輸入 Gemini API Key'); return; }
+
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = '<div class="spinner"></div> 分析中...';
+  progressCard.classList.add('show');
+  resultCard.classList.remove('show');
+  errorMsg.classList.remove('show');
+  ['step-1','step-2','step-3','step-4'].forEach((id,i) => setStep(i+1, ''));
+
+  try {
+    // Step 1 & 2: Whisper
+    setStep(1, 'active');
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    const whisperRes = await fetch(whisperUrl, { method: 'POST', body: formData });
+    if (!whisperRes.ok) throw new Error('Whisper API 回應錯誤：' + whisperRes.status);
+    setStep(1, 'done');
+
+    setStep(2, 'active');
+    const whisperData = await whisperRes.json();
+    const transcript = whisperData.text;
+    if (!transcript) throw new Error('轉錄結果為空');
+    setStep(2, 'done');
+
+    // Step 3: Gemini
+    setStep(3, 'active');
+    const geminiRes = await fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': geminiKey
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text:
+            `無論影片是什麼語言，請全程以繁體中文輸出。\n你是一位專業的內容整理助手。\n請分析以下課程影片轉錄文字並輸出以下格式（使用 JSON 格式回應）：\n{\n  "影片類型": "",\n  "一句話摘要": "",\n  "重點內容": "",\n  "腳本_YouTube": "",\n  "腳本_IG": ""\n}\n\n轉錄文字：\n${transcript}`
+          }] }],
+          generationConfig: { temperature: 0.7, maxOutputTokens: 8192 }
+        })
+      }
+    );
+
+    if (!geminiRes.ok) throw new Error('Gemini API 錯誤：' + geminiRes.status);
+    const geminiData = await geminiRes.json();
+    const rawText = geminiData.candidates[0].content.parts[0].text;
+
+    let parsed;
+    try {
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch {
+      parsed = { '一句話摘要': rawText, '影片類型': '課程', '重點內容': '', '腳本_YouTube': '', '腳本_IG': '' };
+    }
+
+    setStep(3, 'done');
+    setStep(4, 'done');
+
+    renderResults(parsed);
+    resultCard.classList.add('show');
+
+  } catch (err) {
+    const currentActive = document.querySelector('.step.active');
+    if (currentActive) {
+      const id = currentActive.id.replace('step-', '');
+      setStep(id, 'error');
+    }
+    showError('❌ 錯誤：' + err.message);
+    console.error(err);
+  }
+
+  submitBtn.disabled = false;
+  submitBtn.innerHTML = '<span>🚀</span> 重新分析';
+});
+</script>
+</body>
+</html>
