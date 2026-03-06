@@ -3,3 +3,4 @@ uvicorn
 openai-whisper
 python-multipart
 yt-dlp
+pydantic
