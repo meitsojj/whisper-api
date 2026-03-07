@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import whisper, tempfile, os, subprocess
@@ -52,7 +53,7 @@ async def transcribe(file: UploadFile = File(...)):
             os.unlink(tmp_path)
     except Exception as e:
         print(f"Error in transcribe: {str(e)}")
-        return {"error": str(e)}, 500
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.post("/transcribe-youtube")
 async def transcribe_youtube(data: YouTubeURL):
@@ -64,12 +65,13 @@ async def transcribe_youtube(data: YouTubeURL):
             print(f"Downloading audio...")
             subprocess.run([
                 "yt-dlp", "-x", "--audio-format", "mp3",
+                "--js-runtimes", "node",
                 "-o", output_template, data.url
             ], check=True, capture_output=True)
             
             files = os.listdir(tmpdir)
             if not files:
-                return {"error": "Failed to download audio"}
+                return JSONResponse({"error": "Failed to download audio"}, status_code=500)
             
             audio_file = os.path.join(tmpdir, files[0])
             print(f"Transcribing: {audio_file}")
@@ -79,7 +81,7 @@ async def transcribe_youtube(data: YouTubeURL):
     except subprocess.CalledProcessError as e:
         error_msg = f"Download failed: {e.stderr.decode()}"
         print(f"Error: {error_msg}")
-        return {"error": error_msg}, 500
+        return JSONResponse({"error": error_msg}, status_code=500)
     except Exception as e:
         print(f"Error in transcribe_youtube: {str(e)}")
-        return {"error": str(e)}, 500
+        return JSONResponse({"error": str(e)}, status_code=500)
