@@ -2,14 +2,24 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import whisper, tempfile, os, subprocess, base64
+import whisper
+import tempfile
+import os
+import yt_dlp
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import logging
+
+# 設置日誌
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# CORS 中间件配置 - 必须在最前面
+# CORS 中間件配置
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 允许所有来源
+    allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -18,36 +28,15 @@ app.add_middleware(
 )
 
 model = None
+executor = ThreadPoolExecutor(max_workers=2)
 
 def get_model():
     global model
     if model is None:
-        print("Loading Whisper model...")
+        logger.info("Loading Whisper model...")
         model = whisper.load_model("base")
-        print("Model loaded successfully!")
+        logger.info("Model loaded successfully!")
     return model
-
-def setup_cookies():
-    """从环境变量解码并设置 cookies 文件"""
-    cookies_b64 = os.getenv("YT_DLP_COOKIES_B64")
-    if not cookies_b64:
-        print("No YT_DLP_COOKIES_B64 environment variable found")
-        return None
-    
-    try:
-        # 解码 Base64
-        cookies_content = base64.b64decode(cookies_b64).decode('utf-8')
-        
-        # 保存到临时文件
-        cookies_path = "/tmp/cookies.txt"
-        with open(cookies_path, 'w') as f:
-            f.write(cookies_content)
-        
-        print(f"Cookies file created at {cookies_path}")
-        return cookies_path
-    except Exception as e:
-        print(f"Error setting up cookies: {str(e)}")
-        return None
 
 class YouTubeURL(BaseModel):
     url: str
@@ -59,73 +48,84 @@ async def health():
 @app.post("/transcribe")
 async def transcribe(file: UploadFile = File(...)):
     try:
-        print(f"Received file: {file.filename}")
+        logger.info(f"Received file: {file.filename}")
         model = get_model()
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
             content = await file.read()
-            print(f"File size: {len(content)} bytes")
+            logger.info(f"File size: {len(content)} bytes")
             tmp.write(content)
             tmp_path = tmp.name
         try:
-            print(f"Transcribing: {tmp_path}")
+            logger.info(f"Transcribing: {tmp_path}")
             result = model.transcribe(tmp_path, language=None)
-            print(f"Transcription successful: {result['text'][:50]}...")
+            logger.info(f"Transcription successful: {result['text'][:50]}...")
             return {"text": result["text"], "language": result["language"]}
         finally:
             os.unlink(tmp_path)
     except Exception as e:
-        print(f"Error in transcribe: {str(e)}")
+        logger.error(f"Error in transcribe: {str(e)}", exc_info=True)
         return JSONResponse({"error": str(e)}, status_code=500)
+
+def download_youtube_audio(url: str, tmpdir: str) -> str:
+    """使用 yt-dlp Python 庫下載 YouTube 音頻"""
+    try:
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+            'outtmpl': os.path.join(tmpdir, '%(title)s.%(ext)s'),
+            'quiet': False,
+            'no_warnings': False,
+            # 重試機制
+            'socket_timeout': 30,
+            'retries': 3,
+            'fragment_retries': 3,
+            # 使用 node 運行時
+            'js_runtimes': ['node'],
+            # 禁用 age-gate 檢查
+            'skip_unavailable_fragments': True,
+            # 添加 User-Agent
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        }
+        
+        logger.info(f"Downloading from: {url}")
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            audio_file = ydl.prepare_filename(info)
+            logger.info(f"Downloaded: {audio_file}")
+            return audio_file
+    except Exception as e:
+        logger.error(f"Download error: {str(e)}", exc_info=True)
+        raise
 
 @app.post("/transcribe-youtube")
 async def transcribe_youtube(data: YouTubeURL):
     try:
-        print(f"Processing YouTube URL: {data.url}")
+        logger.info(f"Processing YouTube URL: {data.url}")
         model = get_model()
+        
         with tempfile.TemporaryDirectory() as tmpdir:
-            output_template = os.path.join(tmpdir, "%(title)s.%(ext)s")
+            # 在線程池中運行下載，避免阻塞
+            loop = asyncio.get_event_loop()
+            audio_file = await loop.run_in_executor(
+                executor,
+                download_youtube_audio,
+                data.url,
+                tmpdir
+            )
             
-            # 构建 yt-dlp 命令
-            cmd = [
-                "yt-dlp",
-                "-f", "bestaudio/best",
-                "-x",
-                "--audio-format", "mp3",
-                "-o", output_template,
-                data.url
-            ]
-            
-            # 如果设置了 cookies 文件，添加到命令中
-            cookies_path = setup_cookies()
-            if cookies_path and os.path.exists(cookies_path):
-                print(f"Using cookies file: {cookies_path}")
-                cmd.insert(1, "--cookies")
-                cmd.insert(2, cookies_path)
-            else:
-                print("No cookies file found, attempting download without authentication")
-            
-            print(f"Running command: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-            
-            if result.returncode != 0:
-                error_msg = result.stderr
-                print(f"yt-dlp error: {error_msg}")
-                return JSONResponse({"error": f"Download failed: {error_msg}"}, status_code=500)
-            
-            # 查找下载的文件
-            files = os.listdir(tmpdir)
-            if not files:
-                return JSONResponse({"error": "No audio file downloaded"}, status_code=500)
-            
-            audio_file = os.path.join(tmpdir, files[0])
-            print(f"Transcribing downloaded audio: {audio_file}")
+            logger.info(f"Transcribing: {audio_file}")
             result = model.transcribe(audio_file, language=None)
-            print(f"Transcription successful: {result['text'][:50]}...")
+            logger.info(f"Transcription successful: {result['text'][:50]}...")
             return {"text": result["text"], "language": result["language"]}
             
-    except subprocess.TimeoutExpired:
-        print("Download timeout")
-        return JSONResponse({"error": "Download timeout (5 minutes exceeded)"}, status_code=500)
     except Exception as e:
-        print(f"Error in transcribe_youtube: {str(e)}")
+        logger.error(f"Error in transcribe_youtube: {str(e)}", exc_info=True)
         return JSONResponse({"error": str(e)}, status_code=500)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8080)
