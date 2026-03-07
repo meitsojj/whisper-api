@@ -38,18 +38,4 @@ def get_model():
         logger.info("Model loaded successfully!")
     return model
 
-class YouTubeURL(BaseModel):
-    url: str
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-@app.post("/transcribe")
-async def transcribe(file: UploadFile = File(...)):
-    try:
-        logger.info(f"Received file: {file.filename}")
-        model = get_model()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
-            content = await file.read()
-            
+class
