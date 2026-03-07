@@ -518,30 +518,32 @@
         <div class="file-name" id="file-name">檔案名稱</div>
         <div class="file-size" id="file-size">大小</div>
       </div>
-      <button class="remove-btn" id="remove-file">✕</button>
+      <button class="remove-btn" id="remove-file" type="button">✕</button>
     </div>
   </div>
 
-  <!-- Config Card -->
+  <!-- Config Card - 修復：添加 form 標籤 -->
   <div class="card">
     <div class="section-label">02 · 設定</div>
-    <div class="config-grid">
-      <div class="config-item full">
-        <label>Whisper API URL</label>
-        <input type="text" id="whisper-url" value="https://whisper-api-sesped.zeabur.app/transcribe" placeholder="https://whisper-api-sesped.zeabur.app/transcribe">
+    <form id="config-form">
+      <div class="config-grid">
+        <div class="config-item full">
+          <label for="whisper-url">Whisper API URL</label>
+          <input type="text" id="whisper-url" name="whisper-url" value="https://whisper-api-sesped.zeabur.app/transcribe" placeholder="https://whisper-api-sesped.zeabur.app/transcribe">
+        </div>
+        <div class="config-item full">
+          <label for="gemini-key">Gemini API Key <span style="color:var(--accent2);font-size:10px;margin-left:6px;">✓ 自動儲存</span></label>
+          <input type="password" id="gemini-key" name="gemini-key" placeholder="AIzaSy...">
+        </div>
+        <div class="config-item full">
+          <label for="video-title">影片標題（選填）</label>
+          <input type="text" id="video-title" name="video-title" placeholder="例：5-2 業配心法：如何接到業配">
+        </div>
       </div>
-      <div class="config-item full">
-        <label>Gemini API Key <span style="color:var(--accent2);font-size:10px;margin-left:6px;">✓ 自動儲存</span></label>
-        <input type="password" id="gemini-key" placeholder="AIzaSy...">
-      </div>
-      <div class="config-item full">
-        <label>影片標題（選填）</label>
-        <input type="text" id="video-title" placeholder="例：5-2 業配心法：如何接到業配">
-      </div>
-    </div>
+    </form>
   </div>
 
-  <button class="submit-btn" id="submit-btn" disabled>
+  <button class="submit-btn" id="submit-btn" type="button" disabled>
     <span>🚀</span> 開始分析
   </button>
 
@@ -681,7 +683,7 @@ function renderResults(data) {
       <div class="result-field">
         <label>
           ${item.label}
-          <button class="copy-btn" onclick="navigator.clipboard.writeText(${JSON.stringify(val)});this.textContent='已複製！';setTimeout(()=>this.textContent='複製',1500)">複製</button>
+          <button class="copy-btn" type="button" onclick="navigator.clipboard.writeText(${JSON.stringify(val)});this.textContent='已複製！';setTimeout(()=>this.textContent='複製',1500)">複製</button>
         </label>
         <div class="value">${val}</div>
       </div>
@@ -710,7 +712,13 @@ submitBtn.addEventListener('click', async () => {
     const formData = new FormData();
     formData.append('file', selectedFile);
 
-    const whisperRes = await fetch(whisperUrl, { method: 'POST', body: formData });
+    const whisperRes = await fetch(whisperUrl, { 
+      method: 'POST', 
+      body: formData,
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
     if (!whisperRes.ok) throw new Error('Whisper API 回應錯誤：' + whisperRes.status);
     setStep(1, 'done');
 
