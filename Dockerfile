@@ -1,5 +1,4 @@
 FROM python:3.11-slim
-
 LABEL "language"="python"
 LABEL "framework"="fastapi"
 
