@@ -1,269 +1,186 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 import whisper
 import os
 import tempfile
 import json
-from datetime import datetime
-import uvicorn
+from pathlib import Path
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import logging
 
-app = FastAPI()
+# 設置日誌
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Load Whisper model
-model = whisper.load_model("base")
+app = FastAPI(title="Whisper API")
 
-# HTML Web UI
-HTML_CONTENT = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Whisper API - Audio Transcription</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
-        .container { background: white; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); max-width: 600px; width: 100%; padding: 40px; }
-        h1 { color: #333; margin-bottom: 10px; font-size: 28px; }
-        .subtitle { color: #666; margin-bottom: 30px; font-size: 14px; }
-        .upload-area { border: 2px dashed #667eea; border-radius: 8px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.3s; margin-bottom: 20px; }
-        .upload-area:hover { border-color: #764ba2; background: #f8f9ff; }
-        .upload-area.dragover { border-color: #764ba2; background: #f0f2ff; }
-        .upload-area input { display: none; }
-        .upload-icon { font-size: 48px; margin-bottom: 10px; }
-        .upload-text { color: #333; font-weight: 500; margin-bottom: 5px; }
-        .upload-hint { color: #999; font-size: 12px; }
-        button { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 12px 30px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600; transition: transform 0.2s; width: 100%; margin-top: 10px; }
-        button:hover { transform: translateY(-2px); }
-        button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-        .result { margin-top: 30px; padding: 20px; background: #f8f9ff; border-radius: 8px; display: none; }
-        .result.show { display: block; }
-        .result-title { color: #333; font-weight: 600; margin-bottom: 15px; }
-        .transcript-text { background: white; padding: 15px; border-radius: 6px; color: #333; line-height: 1.6; margin-bottom: 15px; max-height: 300px; overflow-y: auto; }
-        .segments { background: white; padding: 15px; border-radius: 6px; max-height: 300px; overflow-y: auto; }
-        .segment { padding: 10px; border-bottom: 1px solid #eee; font-size: 13px; }
-        .segment:last-child { border-bottom: none; }
-        .segment-time { color: #667eea; font-weight: 600; }
-        .segment-text { color: #333; margin-top: 5px; }
-        .download-btn { background: #10b981; margin-top: 10px; }
-        .download-btn:hover { background: #059669; }
-        .loading { display: none; text-align: center; margin: 20px 0; }
-        .spinner { border: 3px solid #f3f3f3; border-top: 3px solid #667eea; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .error { color: #dc2626; padding: 15px; background: #fee2e2; border-radius: 6px; margin-top: 15px; display: none; }
-        .error.show { display: block; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🎙️ Whisper Transcription</h1>
-        <p class="subtitle">Upload audio files to transcribe with OpenAI's Whisper</p>
-        
-        <div class="upload-area" id="uploadArea">
-            <input type="file" id="fileInput" accept="audio/*" />
-            <div class="upload-icon">📁</div>
-            <div class="upload-text">Click to upload or drag and drop</div>
-            <div class="upload-hint">MP3, WAV, M4A, FLAC, OGG (Max 25MB)</div>
-        </div>
-        
-        <button id="transcribeBtn" disabled>Transcribe Audio</button>
-        
-        <div class="loading" id="loading">
-            <div class="spinner"></div>
-            <p style="margin-top: 10px; color: #666;">Processing audio...</p>
-        </div>
-        
-        <div class="error" id="error"></div>
-        
-        <div class="result" id="result">
-            <div class="result-title">Transcription Result</div>
-            <div class="transcript-text" id="transcript"></div>
-            <button class="download-btn" id="downloadBtn">⬇️ Download SRT</button>
-            <div style="margin-top: 15px;">
-                <div class="result-title" style="margin-bottom: 10px;">Segments with Timestamps</div>
-                <div class="segments" id="segments"></div>
-            </div>
-        </div>
-    </div>
+# CORS 設置
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    <script>
-        const uploadArea = document.getElementById('uploadArea');
-        const fileInput = document.getElementById('fileInput');
-        const transcribeBtn = document.getElementById('transcribeBtn');
-        const loading = document.getElementById('loading');
-        const result = document.getElementById('result');
-        const error = document.getElementById('error');
-        const transcript = document.getElementById('transcript');
-        const segments = document.getElementById('segments');
-        const downloadBtn = document.getElementById('downloadBtn');
-        
-        let selectedFile = null;
-        let transcriptionData = null;
+# 全局變數
+model = None
+executor = ThreadPoolExecutor(max_workers=2)
 
-        uploadArea.addEventListener('click', () => fileInput.click());
-        
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.classList.add('dragover');
-        });
-        
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.classList.remove('dragover');
-        });
-        
-        uploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadArea.classList.remove('dragover');
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                fileInput.files = files;
-                handleFileSelect();
-            }
-        });
-        
-        fileInput.addEventListener('change', handleFileSelect);
-        
-        function handleFileSelect() {
-            selectedFile = fileInput.files[0];
-            if (selectedFile) {
-                transcribeBtn.disabled = false;
-                uploadArea.querySelector('.upload-text').textContent = selectedFile.name;
-            }
-        }
-        
-        transcribeBtn.addEventListener('click', async () => {
-            if (!selectedFile) return;
-            
-            const formData = new FormData();
-            formData.append('file', selectedFile);
-            
-            loading.style.display = 'block';
-            error.classList.remove('show');
-            result.classList.remove('show');
-            transcribeBtn.disabled = true;
-            
-            try {
-                const response = await fetch('/transcribe', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                if (!response.ok) {
-                    throw new Error('Transcription failed');
-                }
-                
-                transcriptionData = await response.json();
-                displayResult(transcriptionData);
-            } catch (err) {
-                showError(err.message);
-            } finally {
-                loading.style.display = 'none';
-                transcribeBtn.disabled = false;
-            }
-        });
-        
-        function displayResult(data) {
-            transcript.textContent = data.text;
-            
-            segments.innerHTML = '';
-            data.segments.forEach(seg => {
-                const div = document.createElement('div');
-                div.className = 'segment';
-                div.innerHTML = `
-                    <div class="segment-time">${formatTime(seg.start)} → ${formatTime(seg.end)}</div>
-                    <div class="segment-text">${seg.text}</div>
-                `;
-                segments.appendChild(div);
-            });
-            
-            result.classList.add('show');
-        }
-        
-        function formatTime(seconds) {
-            const h = Math.floor(seconds / 3600);
-            const m = Math.floor((seconds % 3600) / 60);
-            const s = Math.floor(seconds % 60);
-            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-        }
-        
-        function showError(message) {
-            error.textContent = message;
-            error.classList.add('show');
-        }
-        
-        downloadBtn.addEventListener('click', () => {
-            if (!transcriptionData) return;
-            
-            let srtContent = '';
-            transcriptionData.segments.forEach((seg, idx) => {
-                const start = formatSRTTime(seg.start);
-                const end = formatSRTTime(seg.end);
-                srtContent += `${idx + 1}\n${start} --> ${end}\n${seg.text}\n\n`;
-            });
-            
-            const blob = new Blob([srtContent], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `transcription_${new Date().getTime()}.srt`;
-            a.click();
-            URL.revokeObjectURL(url);
-        });
-        
-        function formatSRTTime(seconds) {
-            const h = Math.floor(seconds / 3600);
-            const m = Math.floor((seconds % 3600) / 60);
-            const s = Math.floor(seconds % 60);
-            const ms = Math.floor((seconds % 1) * 1000);
-            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
-        }
-    </script>
-</body>
-</html>
-"""
-
-@app.get("/", response_class=HTMLResponse)
-async def get_ui():
-    """Serve the Web UI"""
-    return HTML_CONTENT
-
-@app.post("/transcribe")
-async def transcribe(file: UploadFile = File(...)):
-    """Transcribe uploaded audio file"""
+@app.on_event("startup")
+async def startup_event():
+    global model
+    logger.info("Loading Whisper model...")
     try:
-        # Save uploaded file to temp location
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
-            content = await file.read()
-            tmp_file.write(content)
-            tmp_path = tmp_file.name
-        
-        try:
-            # Transcribe with Whisper
-            result = model.transcribe(tmp_path)
-            
-            # Format response with segments
-            return {
-                "text": result["text"],
-                "segments": [
-                    {
-                        "start": seg["start"],
-                        "end": seg["end"],
-                        "text": seg["text"].strip()
-                    }
-                    for seg in result["segments"]
-                ]
-            }
-        finally:
-            # Clean up temp file
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-    
+        model = whisper.load_model("base")
+        logger.info("Model loaded successfully")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"Failed to load model: {e}")
+        raise
+
+@app.get("/")
+async def root():
+    return FileResponse("static/index.html")
 
 @app.get("/health")
 async def health():
-    """Health check endpoint"""
-    return {"status": "ok"}
+    return {"status": "ok", "model_loaded": model is not None}
+
+@app.post("/transcribe")
+async def transcribe(file: UploadFile = File(...)):
+    """
+    轉譯上傳的音頻文件
+    """
+    if model is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    
+    temp_file = None
+    try:
+        # 保存上傳的文件
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+            content = await file.read()
+            tmp.write(content)
+            temp_file = tmp.name
+        
+        logger.info(f"Processing file: {file.filename}, size: {len(content)} bytes")
+        
+        # 在線程池中運行轉譯（避免阻塞事件循環）
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            executor,
+            lambda: model.transcribe(temp_file, language="zh")
+        )
+        
+        # 生成 SRT 字幕
+        srt_content = generate_srt(result["segments"])
+        
+        return {
+            "text": result["text"],
+            "segments": result["segments"],
+            "srt": srt_content,
+            "language": result.get("language", "unknown")
+        }
+    
+    except Exception as e:
+        logger.error(f"Transcription error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    finally:
+        # 清理臨時文件
+        if temp_file and os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except:
+                pass
+
+@app.post("/transcribe-srt")
+async def transcribe_srt(file: UploadFile = File(...)):
+    """
+    轉譯並返回 SRT 文件下載
+    """
+    if model is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    
+    temp_file = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+            content = await file.read()
+            tmp.write(content)
+            temp_file = tmp.name
+        
+        logger.info(f"Processing file for SRT: {file.filename}")
+        
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            executor,
+            lambda: model.transcribe(temp_file, language="zh")
+        )
+        
+        srt_content = generate_srt(result["segments"])
+        
+        # 返回 SRT 文件下載
+        srt_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix=".srt", encoding='utf-8')
+        srt_file.write(srt_content)
+        srt_file.close()
+        
+        return FileResponse(
+            srt_file.name,
+            media_type="text/plain",
+            filename=f"{Path(file.filename).stem}.srt"
+        )
+    
+    except Exception as e:
+        logger.error(f"SRT generation error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    finally:
+        if temp_file and os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except:
+                pass
+
+def generate_srt(segments):
+    """
+    從 Whisper 的 segments 生成 SRT 字幕
+    """
+    srt_lines = []
+    for i, segment in enumerate(segments, 1):
+        start = format_timestamp(segment["start"])
+        end = format_timestamp(segment["end"])
+        text = segment["text"].strip()
+        
+        srt_lines.append(f"{i}")
+        srt_lines.append(f"{start} --> {end}")
+        srt_lines.append(text)
+        srt_lines.append("")
+    
+    return "\n".join(srt_lines)
+
+def format_timestamp(seconds):
+    """
+    將秒數轉換為 SRT 時間戳格式 (HH:MM:SS,mmm)
+    """
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    millis = int((seconds % 1) * 1000)
+    
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+# 靜態文件
+if os.path.exists("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    import uvicorn
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8080,
+        timeout_keep_alive=3600,
+        timeout_graceful_shutdown=3600
+    )
